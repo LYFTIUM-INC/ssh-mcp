@@ -16,7 +16,7 @@ COPY package*.json ./
 COPY tsconfig.json ./
 
 # Install dependencies
-RUN npm ci --only=production
+RUN npm install
 
 # Copy source code
 COPY src/ ./src/
@@ -47,7 +47,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install only production dependencies
-RUN npm ci --only=production && \
+RUN npm install --omit=dev && \
     npm cache clean --force
 
 # Copy built application from builder stage
@@ -102,7 +102,7 @@ LABEL \
     org.opencontainers.image.description="Enterprise-grade SSH MCP server with AI intelligence" \
     org.opencontainers.image.authors="Andre (OptinampOut)" \
     org.opencontainers.image.vendor="LYFTIUM-INC" \
-    org.opencontainers.image.version="1.0.0" \
+    org.opencontainers.image.version="0.1.0" \
     org.opencontainers.image.url="https://github.com/LYFTIUM-INC/ssh-mcp" \
     org.opencontainers.image.documentation="https://github.com/LYFTIUM-INC/ssh-mcp/blob/main/README.md" \
     org.opencontainers.image.source="https://github.com/LYFTIUM-INC/ssh-mcp.git"

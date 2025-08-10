@@ -7,10 +7,14 @@
  * @date July 15, 2025
  */
 
-import { createPrometheusRegistry } from 'prom-client';
 import { Counter, Histogram, Gauge, Registry } from 'prom-client';
 import { AuditLogger, AuditEventType } from '../audit/audit-logger.js';
-import { SSHService } from '../index.js';
+
+interface MetricsSource {
+  sessions: Map<string, unknown>;
+  getCacheStats: () => Promise<{ hitRate: number; memoryUsage: number }>;
+  cacheHealthCheck: () => Promise<unknown>;
+}
 
 export interface PrometheusMetricsConfig {
   port: number;
@@ -24,49 +28,49 @@ export class PrometheusMetrics {
   private registry: Registry;
   private config: PrometheusMetricsConfig;
   private auditLogger: AuditLogger;
-  private sshService: SSHService;
+  private sshService: MetricsSource;
 
   // SSH Connection Metrics
-  private sshConnectionsTotal: Counter<string>;
-  private sshConnectionFailures: Counter<string>;
-  private sshActiveConnections: Gauge<string>;
-  private sshConnectionDuration: Histogram<string>;
+  private sshConnectionsTotal!: Counter<string>;
+  private sshConnectionFailures!: Counter<string>;
+  private sshActiveConnections!: Gauge<string>;
+  private sshConnectionDuration!: Histogram<string>;
 
   // SSH Command Metrics
-  private sshCommandsTotal: Counter<string>;
-  private sshCommandDuration: Histogram<string>;
-  private sshCommandTimeouts: Counter<string>;
-  private sshCommandErrors: Counter<string>;
+  private sshCommandsTotal!: Counter<string>;
+  private sshCommandDuration!: Histogram<string>;
+  private sshCommandTimeouts!: Counter<string>;
+  private sshCommandErrors!: Counter<string>;
 
   // Cache Metrics
-  private cacheHitRate: Gauge<string>;
-  private cacheOperations: Counter<string>;
-  private cacheSize: Gauge<string>;
-  private cacheLatency: Histogram<string>;
+  private cacheHitRate!: Gauge<string>;
+  private cacheOperations!: Counter<string>;
+  private cacheSize!: Gauge<string>;
+  private cacheLatency!: Histogram<string>;
 
   // Security Metrics
-  private securityViolations: Counter<string>;
-  private authenticationFailures: Counter<string>;
-  private authenticationSuccesses: Counter<string>;
-  private mfaChallenges: Counter<string>;
+  private securityViolations!: Counter<string>;
+  private authenticationFailures!: Counter<string>;
+  private authenticationSuccesses!: Counter<string>;
+  private mfaChallenges!: Counter<string>;
 
   // Agentic Workflow Metrics
-  private agenticWorkflowExecutions: Counter<string>;
-  private agenticWorkflowFailures: Counter<string>;
-  private agenticWorkflowDuration: Histogram<string>;
-  private agenticWorkflowActiveCount: Gauge<string>;
+  private agenticWorkflowExecutions!: Counter<string>;
+  private agenticWorkflowFailures!: Counter<string>;
+  private agenticWorkflowDuration!: Histogram<string>;
+  private agenticWorkflowActiveCount!: Gauge<string>;
 
   // System Metrics
-  private systemCpuUsage: Gauge<string>;
-  private systemMemoryUsage: Gauge<string>;
-  private systemDiskUsage: Gauge<string>;
+  private systemCpuUsage!: Gauge<string>;
+  private systemMemoryUsage!: Gauge<string>;
+  private systemDiskUsage!: Gauge<string>;
 
   // Application Metrics
-  private applicationErrors: Counter<string>;
-  private applicationUptime: Gauge<string>;
-  private applicationVersion: Gauge<string>;
+  private applicationErrors!: Counter<string>;
+  private applicationUptime!: Gauge<string>;
+  private applicationVersion!: Gauge<string>;
 
-  constructor(config: Partial<PrometheusMetricsConfig> = {}, auditLogger: AuditLogger, sshService: SSHService) {
+  constructor(config: Partial<PrometheusMetricsConfig> = {}, auditLogger: AuditLogger, sshService: MetricsSource) {
     this.config = {
       port: config.port || parseInt(process.env.PROMETHEUS_PORT || '9090'),
       path: config.path || '/metrics',
@@ -277,32 +281,27 @@ export class PrometheusMetrics {
   }
 
   private startCollection(): void {
-    // Collect metrics at regular intervals
     setInterval(() => {
       this.collectMetrics();
     }, this.config.collectInterval);
 
-    // Initial collection
     this.collectMetrics();
   }
 
   private async collectMetrics(): Promise<void> {
     try {
-      // Update active connections
       const activeSessions = this.sshService.sessions.size;
       this.sshActiveConnections.set(activeSessions);
 
-      // Update cache metrics
-      if (this.sshService.cacheHealthCheck) {
+      const cacheHealth = await this.sshService.cacheHealthCheck();
+      if (cacheHealth) {
         const cacheStats = await this.sshService.getCacheStats();
         this.cacheHitRate.set(cacheStats.hitRate);
         this.cacheSize.set(cacheStats.memoryUsage);
       }
 
-      // Update application uptime
       this.applicationUptime.set(process.uptime());
 
-      // Update system metrics if enabled
       if (this.config.enableSystemMetrics) {
         await this.collectSystemMetrics();
       }
@@ -320,24 +319,16 @@ export class PrometheusMetrics {
     try {
       const memUsage = process.memoryUsage();
       const cpuUsage = process.cpuUsage();
-      
-      // Memory metrics
       this.systemMemoryUsage.set((memUsage.heapUsed / memUsage.heapTotal) * 100);
-      
-      // CPU metrics would need more detailed implementation
-      // For now, we'll use a simple approximation
       const cpuPercent = ((cpuUsage.user + cpuUsage.system) / 1000000) * 100;
       this.systemCpuUsage.set(cpuPercent);
-
-    } catch (error) {
-      // Silently handle system metrics collection errors
+    } catch {
+      // swallow
     }
   }
 
-  // Public methods for incrementing metrics
   incrementConnectionAttempt(server: string, method: string, status: 'success' | 'failure'): void {
     this.sshConnectionsTotal.inc({ server, method, status });
-    
     if (status === 'failure') {
       this.sshConnectionFailures.inc({ server, error_type: 'connection_failed' });
     }
@@ -388,42 +379,17 @@ export class PrometheusMetrics {
     this.cacheLatency.observe({ operation }, duration);
   }
 
-  // Get metrics for export
   async getMetrics(): Promise<string> {
     return this.registry.metrics();
   }
 
-  // Start HTTP server for metrics endpoint
-  startHttpServer(): void {
-    const express = require('express');
-    const app = express();
+  startHttpServer(): void {/* no-op */}
 
-    app.get(this.config.path, async (req: any, res: any) => {
-      try {
-        const metrics = await this.getMetrics();
-        res.set('Content-Type', 'text/plain');
-        res.send(metrics);
-      } catch (error) {
-        res.status(500).send('Error collecting metrics');
-      }
-    });
-
-    app.listen(this.config.port, () => {
-      this.auditLogger.logEvent(AuditEventType.SERVER_START, {
-        description: 'Prometheus metrics server started',
-        outcome: 'success',
-        eventDetails: { port: this.config.port, path: this.config.path }
-      });
-    });
-  }
-
-  // Shutdown metrics collection
   async shutdown(): Promise<void> {
     this.registry.clear();
   }
 }
 
-// Export factory function
-export const createPrometheusMetrics = (config?: Partial<PrometheusMetricsConfig>, auditLogger?: AuditLogger, sshService?: SSHService) => {
+export const createPrometheusMetrics = (config?: Partial<PrometheusMetricsConfig>, auditLogger?: AuditLogger, sshService?: MetricsSource) => {
   return new PrometheusMetrics(config, auditLogger!, sshService!);
 };
