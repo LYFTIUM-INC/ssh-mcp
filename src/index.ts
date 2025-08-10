@@ -69,7 +69,7 @@ import {
   AGENTIC_CONSTANTS
 } from './agentic/index.js';
 import { PrometheusMetrics } from './monitoring/prometheus-metrics.js';
-import http from 'http';
+import { startHttpServer } from './server/http-server.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -2190,30 +2190,7 @@ sshService.initializeCache().catch(console.error);
 
 // Initialize Prometheus metrics and HTTP endpoints
 const metrics = new PrometheusMetrics({}, sshService.auditLogger, sshService);
-const serverPort = parseInt(process.env.PROMETHEUS_PORT || '3001');
-const httpServer = http.createServer(async (req, res) => {
-  try {
-    if (req.url && req.url.startsWith('/metrics')) {
-      const body = await metrics.getMetrics();
-      res.statusCode = 200;
-      res.setHeader('Content-Type', 'text/plain');
-      res.end(body);
-      return;
-    }
-    if (req.url === '/health') {
-      res.statusCode = 200;
-      res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ status: 'healthy', timestamp: new Date().toISOString() }));
-      return;
-    }
-    res.statusCode = 404;
-    res.end('Not Found');
-  } catch (err) {
-    res.statusCode = 500;
-    res.end('Internal Server Error');
-  }
-});
-httpServer.listen(serverPort);
+startHttpServer(sshService, metrics);
 
 // List available tools
 server.setRequestHandler(ListToolsRequestSchema, async () => {
